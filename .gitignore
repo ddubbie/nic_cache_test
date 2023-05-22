@@ -2,3 +2,6 @@
 .*.*.swp
 .*.*.swo
 *.out
+*.txt
+sample_key_value.txt
+send_sample_key_value

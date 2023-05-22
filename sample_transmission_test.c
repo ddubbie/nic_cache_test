@@ -44,12 +44,6 @@ static char *sample_key = "helloworld";
 static char *sample_object;
 static uint8_t app_recv_buf[1<<12];
 
-static uint8_t num_threads;
-static uint16_t max_concurrency;
-
-static void SetupTransmissionTest(void);
-static void TeardownTransmissionTest(void);
-
 static int CreateConnection(void);
 static int SendGetRequest(const int fd);
 static int ReceiveReply(const int fd);
@@ -185,7 +179,7 @@ main(const int argc, char *argv[]) {
     daddr = inet_addr("10.0.30.110");
     dport = htons(65000);
 
-    while((opt = getopt(argc, argv, "l:")))
+    while((opt = getopt(argc, argv, "l:")) != -1)
     {
         switch(opt) {
             case 'l' :
@@ -202,5 +196,6 @@ main(const int argc, char *argv[]) {
     len = ReceiveReply(fd);
     log_trace("Received byte length : %d\n", len);
     CloseConnection(fd);
+    DestroySampleObject();
     return 0;
 }

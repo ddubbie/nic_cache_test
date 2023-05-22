@@ -75,6 +75,7 @@ connection_deallocate(connection_pool_t *cp, connection_t *c)
     }
 
     c->state = CONNECTION_UNUSED;
+    c->it = NULL;
     cp->num_free_elements++;
 }
 
