@@ -494,7 +494,7 @@ PrintLog(void *arg) {
         sec++;
         rx_byte_ratio = (double)total_rx_bytes / (sec * (1 << 20));
         tx_byte_ratio = (double)total_tx_bytes / (sec * (1 << 20));
-        fprintf(stdout, "total rx bytes/sec: %-1fu   total tx bytes : %-10lf, "
+        fprintf(stdout, "rx:%-10lf(MB/sec)   tx:%-10lf(MB/sec), "
                         "# connects : %-8u    # closes : %-8u\n", 
                 rx_byte_ratio, tx_byte_ratio,
                 num_connect_, num_close_);
