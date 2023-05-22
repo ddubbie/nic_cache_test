@@ -346,7 +346,6 @@ ReceiveReply(connection_t *c, uint8_t buf[], const ssize_t buf_size,
     }
 
     if (len == 0) {
-        CheckReply(c, buf, buf_size);
         CloseConnection(c, cp, thread_concurrency);
         return 0;
     } else {
