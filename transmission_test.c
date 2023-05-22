@@ -86,8 +86,8 @@ static void QuickSort(const uint64_t hv_bitmask, const int left, const int right
 static void *PrintLog(void *arg);
 static pthread_mutex_t logMtx_ = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t logCnd_ = PTHREAD_COND_INITIALIZER;
-static uint32_t total_rx_bytes = 0;
-static uint32_t total_tx_bytes = 0;
+static uint64_t total_rx_bytes = 0;
+static uint64_t total_tx_bytes = 0;
 static bool run_log_ = true;
 static int *per_thread_concurrency[16];
 
@@ -403,7 +403,7 @@ SetCoreAffinity(const int thread_no)
     CPU_ZERO(&cpuset);
     CPU_SET(thread_no, &cpuset);
 
-    if (pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset) != 0) {
+    if (pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset) < 0) {
         log_error("pthread_setaffinity_np() error, %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -481,6 +481,8 @@ static void *
 PrintLog(void *arg) {
     int i;
     struct timespec ts;
+    double rx_byte_ratio;
+    double tx_byte_ratio;
     uint32_t sec;
     sleep(10);
     sec = 10;
@@ -490,9 +492,11 @@ PrintLog(void *arg) {
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 1;
         sec++;
-        fprintf(stdout, "total rx bytes/sec: %-10u   total tx bytes : %-10u, "
+        rx_byte_ratio = (double)total_rx_bytes / (sec * (1 << 20));
+        tx_byte_ratio = (double)total_tx_bytes / (sec * (1 << 20));
+        fprintf(stdout, "total rx bytes/sec: %-1fu   total tx bytes : %-10lf, "
                         "# connects : %-8u    # closes : %-8u\n", 
-                total_rx_bytes / sec, total_tx_bytes / sec, 
+                rx_byte_ratio, tx_byte_ratio,
                 num_connect_, num_close_);
 
         for (i = 0; i < num_threads_; i++) {
@@ -511,7 +515,7 @@ main(const int argc, char *argv[]) {
 
     int opt, i;
     pthread_t printLogThread;
-    bool print_log = false;
+    bool print_log = true;
 
     if (argc != 7 && argc != 8) {
         log_error("invalide number of arguments, %d\n", argc);
