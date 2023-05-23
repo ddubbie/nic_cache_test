@@ -59,6 +59,7 @@ static kv_hashtable_item_t **items_;
 static struct timespec global_test_start_ts_;
 static uint32_t num_close_ = 0;
 static uint32_t num_connect_ = 0;
+static uint64_t num_requests = 0;
 
 static struct sockaddr_in daddr_;
 static in_port_t dport;
@@ -242,6 +243,7 @@ TryConnection(connection_t *c, int *thread_concurrency)
             *thread_concurrency = *thread_concurrency + 1;
         c->state = CONNECTION_ESTABLISEHD;
         num_connect_++;
+        num_requests++;
     }
     return c;
 }
@@ -479,7 +481,7 @@ RunTransmissionTestThread(void *arg)
 
 static void *
 PrintLog(void *arg) {
-    int i;
+    //int i;
     struct timespec ts;
     double rx_byte_ratio;
     double tx_byte_ratio;
@@ -494,14 +496,14 @@ PrintLog(void *arg) {
         sec++;
         rx_byte_ratio = (double)total_rx_bytes / (sec * (1 << 20));
         tx_byte_ratio = (double)total_tx_bytes / (sec * (1 << 20));
-        fprintf(stdout, "rx:%-10lf(MB/sec)   tx:%-10lf(MB/sec), "
+        fprintf(stdout, "rx:%-10lf(MB/sec)\ttx:%-10lf(MB/sec)\t#reqs/sec:%lu/sec\t"
                         "# connects : %-8u    # closes : %-8u\n", 
-                rx_byte_ratio, tx_byte_ratio,
+                rx_byte_ratio, tx_byte_ratio, num_requests / sec,
                 num_connect_, num_close_);
-
+/*
         for (i = 0; i < num_threads_; i++) {
             fprintf(stdout, "[Thread%d] #flows:%d\n", i, *per_thread_concurrency[i]);
-        }
+        }*/
 
         pthread_cond_timedwait(&logCnd_, &logMtx_, &ts);
         pthread_mutex_unlock(&logMtx_);
