@@ -36,8 +36,8 @@ static void
 PrintOption(void) {
 
     printf("-n : number of key-value tuples to generate\n" \
+           "-k : maximum key size\n" \
            "-v : maximum value size\n"  \
-           "-k : maximum key size\n"\
            "-u : generate uniform sized value\n");
 }
 /* 64 704*/

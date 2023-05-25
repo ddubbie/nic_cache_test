@@ -34,6 +34,7 @@
 #define FIRST_BITMASK       (UINT32_MAX)
 #define SECOND_BITMASK      ((1LU << 48) - 1) & (~((1LU << 16) - 1))
 #define THIRD_BITMASK       (UINT64_MAX) & ~((1LU << 32) - 1)
+#define CONNECTION_BUFSIZE  (16384)
 
 typedef struct req_hdr_ req_hdr;
 typedef struct rep_hdr_ rep_hdr;
@@ -60,6 +61,7 @@ static struct timespec global_test_start_ts_;
 static uint32_t num_close_ = 0;
 static uint32_t num_connect_ = 0;
 static uint64_t num_requests = 0;
+static bool persistent_connection_ = false;
 
 static struct sockaddr_in daddr_;
 static in_port_t dport;
@@ -72,10 +74,9 @@ static void *RunTransmissionTestThread(void *arg);
 static void SetCoreAffinity(const int thread_no);
 
 static connection_t *CreateConnection(connection_pool_t *cp, int *thread_concurrency, int ep);
-static connection_t *TryConnection(connection_t *c, int *thread_concurrency);
-static int SendRandomGetRequest(connection_t *c);
-static int ReceiveReply(connection_t *c, uint8_t *buf, const ssize_t buf_size, 
-        connection_pool_t *cp, int *thread_concurrency);
+static connection_t *TryConnection(connection_t *c, const int ep, int *thread_concurrency);
+static int SendRandomGetRequest(connection_t *c, const int ep, connection_pool_t *cp, int *thread_concurrency);
+static int ReceiveReply(connection_t *c, const int ep, connection_pool_t *cp, int *thread_concurrency);
 static void CloseConnection(connection_t *c, connection_pool_t *cp, int *thread_concurrency);
 
 static void SignalInterruptHandler(int signo);
@@ -107,7 +108,7 @@ static void
 SetupTransmissionTest(void) {
 
     FILE *sample_key_value_file = NULL;
-    char line[1 << 12];
+    char line[1 << 16];
     char *key, *val, *saveptr, *endptr, *p;
     uint16_t keyLen;
     uint32_t valLen;
@@ -130,7 +131,7 @@ SetupTransmissionTest(void) {
     }
 
     while (count < num_items_) {
-        if (!fgets(line, 1 << 12, sample_key_value_file))
+        if (!fgets(line, 1 << 16, sample_key_value_file))
             break;
         p = strtok_r(line, ",", &saveptr);
         keyLen = strtol(p, &endptr, 10);
@@ -228,7 +229,7 @@ TeardownTransmissionTest(void) {
 }
 
 static connection_t *
-TryConnection(connection_t *c, int *thread_concurrency) 
+TryConnection(connection_t *c, const int ep, int *thread_concurrency) 
 {
     if (connect(c->fd, (struct sockaddr *)&daddr_, sizeof(struct sockaddr_in)) < 0) {
         if (errno == EINPROGRESS) {
@@ -239,11 +240,22 @@ TryConnection(connection_t *c, int *thread_concurrency)
             return NULL;
         }
     } else {
-        if (c->state == !CONNECTION_AGAIN)
+        //struct epoll_event ev;
+        
+        if (c->state != CONNECTION_AGAIN)
             *thread_concurrency = *thread_concurrency + 1;
         c->state = CONNECTION_ESTABLISEHD;
+        clock_gettime(CLOCK_REALTIME, &c->ts);
         num_connect_++;
         num_requests++;
+
+        /*ev.events = EPOLLOUT;
+        ev.data.fd = c->fd;
+
+        if (epoll_ctl(ep, EPOLL_CTL_MOD, c->fd, &ev) < 0) {
+            log_error("epoll_ctl() error\n");
+            return NULL;
+        }*/
     }
     return c;
 }
@@ -273,13 +285,13 @@ CreateConnection(connection_pool_t *cp, int *thread_concurrency, int ep)
     }
 
     ev.data.ptr = c;
-    ev.events = EPOLLIN | EPOLLOUT;
+    ev.events = EPOLLOUT;
     if (epoll_ctl(ep, EPOLL_CTL_ADD, c->fd, &ev) < 0) {
         log_error("epoll_ctl() fail, %s\n", strerror(errno));
         goto fail;
     }
 
-    if(!TryConnection(c, thread_concurrency))
+    if(!TryConnection(c, ep, thread_concurrency))
         goto fail;
 
     return c;
@@ -297,15 +309,17 @@ CloseConnection(connection_t *c, connection_pool_t *cp, int *thread_concurrency)
     close(c->fd);
     connection_deallocate(cp, c);
     num_close_++;
+//    log_trace("close fd:%d, c:%p, st:%d\n", c->fd, c, c->state);
 }
 
 static int
-SendRandomGetRequest(connection_t *c)
+SendRandomGetRequest(connection_t *c, const int ep, connection_pool_t *cp, int *thread_concurrency)
 {
     int ret;
     uint32_t prio;
     req_hdr hdr;
     struct iovec vec[2];
+    struct epoll_event ev;
     if (c->state != CONNECTION_ESTABLISEHD)
         return -1;
 
@@ -322,42 +336,84 @@ SendRandomGetRequest(connection_t *c)
     vec[1].iov_len = item_keyLen(c->it);
 
     ret = writev(c->fd, vec, 2);
-    if (ret < 0) 
+    if (ret < 0)  {
+        log_error("error\n");
         return -1;
+    }
+
+    clock_gettime(CLOCK_REALTIME, &c->ts);
 
     total_tx_bytes += ret;
     c->state = CONNECTION_WAIT_FOR_REPLY;
+    ev.events = EPOLLIN;
+    ev.data.ptr = c;
+
+    if (epoll_ctl(ep, EPOLL_CTL_MOD, c->fd, &ev) < 0) {
+        log_error("epoll_ctl() fail, %s\n", strerror(errno));
+        CloseConnection(c, cp, thread_concurrency);
+    }
 
     return 0;
 }
 
 static int
-ReceiveReply(connection_t *c, uint8_t buf[], const ssize_t buf_size, 
-        connection_pool_t *cp, int *thread_concurrency)
+ReceiveReply(connection_t *c, const int ep, connection_pool_t *cp, int *thread_concurrency)
 {
-    int len, offset = 0;
+    int len;
+    struct timespec ts_now;
 
     if (c->state != CONNECTION_WAIT_FOR_REPLY && c->state != CONNECTION_RCV_REPLY_AGAIN) {
         return -1;
     }
 
-    while((len = read(c->fd, buf + offset, buf_size - offset)) > 0)
+    while((len = read(c->fd, c->buf + c->buflen, CONNECTION_BUFSIZE - c->buflen)) > 0)
     {
         total_rx_bytes += len;
-        offset += len;
+        c->buflen += len;
     }
+
+    clock_gettime(CLOCK_REALTIME, &ts_now);
+
+ //   log_trace("fd:%d rcvdLen:%d len:%d,%d,st:%d, c:%p\n", 
+  //          c->fd, c->buflen, len, errno, c->state, c);
 
     if (len == 0) {
         CloseConnection(c, cp, thread_concurrency);
         return 0;
     } else {
         if (errno == EAGAIN) {
-            if (offset == (sizeof(rep_hdr) + item_valueLen(c->it))) {
-                CheckReply(c, buf, buf_size);
-                CloseConnection(c, cp ,thread_concurrency);
+            if (c->buflen == (sizeof(rep_hdr) + item_valueLen(c->it))) {
+
+   //             log_trace("rcvdLen:%d\n", c->buflen);
+                CheckReply(c, c->buf, c->buflen);
+
+                if (persistent_connection_) {
+
+                    struct epoll_event ev;
+                    ev.events = EPOLLOUT;
+                    ev.data.ptr = c;
+                    
+                    if (epoll_ctl(ep, EPOLL_CTL_MOD, c->fd, &ev) < 0) {
+                        log_error("epoll_ctl() fail, %s\n", strerror(errno));
+                        CloseConnection(c, cp ,thread_concurrency);
+                        return 0;
+                    }
+
+                    c->state = CONNECTION_ESTABLISEHD;
+                    c->buflen = 0;
+
+                } else {
+                    CloseConnection(c, cp ,thread_concurrency);
+                }
                 return 0;
             } else {
-                c->state = CONNECTION_RCV_REPLY_AGAIN;
+                /*
+                if (ts_now.tv_sec - c->ts.tv_sec > 30) {
+                    CloseConnection(c, cp, thread_concurrency);
+                }
+                else { */
+                     c->state = CONNECTION_RCV_REPLY_AGAIN;
+                //}
             }
             return -2;
         } else {
@@ -422,7 +478,6 @@ RunTransmissionTestThread(void *arg)
     int nevents;
     struct epoll_event events[max_concurrency_ / num_threads_ * 3];
     connection_t *c;
-    uint8_t buf[1 << 13];
 
     uint8_t thread_number = *(uint8_t *)arg;
     const int thread_max_conncurrency = max_concurrency_ / num_threads_;
@@ -455,18 +510,21 @@ RunTransmissionTestThread(void *arg)
 
         for (i = 0; i < nevents; i++) {
             c = events[i].data.ptr;
-            //log_trace("%u\n", c->state);
+            //log_trace("%u, %p\n", c->state, c);
             if (events[i].events & EPOLLERR || events[i].events & EPOLLHUP) {
+             //   log_trace("error, fd: %d\n", c->fd);
                 CloseConnection(c, cp, &thread_concurrency);
             } else if (c->state == CONNECTION_AGAIN) {
-                TryConnection(c, &thread_concurrency);
+                if (!TryConnection(c, ep, &thread_concurrency)) {
+                    CloseConnection(c, cp ,&thread_concurrency);
+                }
             } else if (c->state == CONNECTION_ESTABLISEHD) {
-                if (SendRandomGetRequest(c) < 0) {
+                if (SendRandomGetRequest(c, ep, cp, &thread_concurrency) < 0) {
                     CloseConnection(c, cp, &thread_concurrency);
                 }
             } else if (c->state == CONNECTION_WAIT_FOR_REPLY || 
                             c->state == CONNECTION_RCV_REPLY_AGAIN) {
-                ReceiveReply(c, buf, 1U << 13, cp, &thread_concurrency);
+                ReceiveReply(c, ep, cp, &thread_concurrency);
 
             } else {
                 CloseConnection(c, cp, &thread_concurrency);
@@ -517,14 +575,14 @@ main(const int argc, char *argv[]) {
 
     int opt, i;
     pthread_t printLogThread;
-    bool print_log = true;
+    bool print_log = false;
 
-    if (argc != 7 && argc != 8) {
+    if (argc != 7 && argc != 8 && argc != 9) {
         log_error("invalide number of arguments, %d\n", argc);
         return -1;
     }
 
-    while((opt = getopt(argc, argv, "t:n:c:p")) != -1) 
+    while((opt = getopt(argc, argv, "t:n:c:pP")) != -1) 
     {
         switch(opt) {
             case 't' :
@@ -539,6 +597,9 @@ main(const int argc, char *argv[]) {
             case 'p' :
                 print_log = true;
                 break;
+            case 'P' :
+                persistent_connection_ = true;
+                break;
             default :
                 log_error("invalid argument %c error\n", (char)opt);
                 return -1;
@@ -547,6 +608,7 @@ main(const int argc, char *argv[]) {
 
     clock_gettime(CLOCK_REALTIME, &global_test_start_ts_);
 
+    //dIp = inet_addr("10.0.30.210");
     dIp = inet_addr("10.0.30.110");
     dport = htons(65000);
 

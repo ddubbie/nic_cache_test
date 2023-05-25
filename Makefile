@@ -1,12 +1,13 @@
 TRANSMISSION_TEST = transmission_test
-SAMPLE_TRANSMISSION_TEST = sample_transmission_test
+BLOCKING_CLIENT_TEST = blocking_client_test
 GEN_RANDOM_KEY_VALUE = gen_random_key_value
 CC = gcc
-CFLAGS = -g -Wall  #-O3
+CFLAGS = -g -Wall #-Werror  #-O3
 LDFLAGS = -lpthread -lxxhash -lm -lhugetlbfs
 DEFINE = -D_GNU_SOURCE
 
-all : $(TRANSMISSION_TEST) $(SAMPLE_TRANSMISSION_TEST) $(GEN_RANDOM_KEY_VALUE)
+all : $(TRANSMISSION_TEST) $(BLOCKING_CLIENT_TEST) \
+	  $(GEN_RANDOM_KEY_VALUE) 
 
 $(TRANSMISSION_TEST) : transmission_test.c \
 					   hashtable.o \
@@ -17,7 +18,7 @@ $(TRANSMISSION_TEST) : transmission_test.c \
 					   genzipf.o
 	$(CC) $(CFLAGS) -o $@ $^  $(LDFLAGS) $(DEFINE)
 
-$(SAMPLE_TRANSMISSION_TEST) : sample_transmission_test.c
+$(BLOCKING_CLIENT_TEST) : blocking_client_test.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 $(GEN_RANDOM_KEY_VALUE) : gen_random_key_value.c \
@@ -45,4 +46,6 @@ genzipf.o : genzipf.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
 clean :
-	rm -f $(TRANSMISSION_TEST) $(SAMPLE_TRANSMISSION_TEST) $(GEN_RANDOM_KEY_VALUE) *.o 
+	rm -f $(TRANSMISSION_TEST) $(PERSISTENT_CONNECTION_TEST) \
+		  $(GEN_RANDOM_KEY_VALUE) $(BLOCKING_CLIENT_TEST) \
+		  *.o 

@@ -57,6 +57,8 @@ connection_allocate(connection_pool_t *cp)
 
     c->state = CONNECTION_USED;
     c->next = NULL;
+    
+    clock_gettime(CLOCK_REALTIME, &c->ts);
 
     cp->num_free_elements--;
 
@@ -76,6 +78,7 @@ connection_deallocate(connection_pool_t *cp, connection_t *c)
 
     c->state = CONNECTION_UNUSED;
     c->it = NULL;
+    c->buflen = 0;
     cp->num_free_elements++;
 }
 

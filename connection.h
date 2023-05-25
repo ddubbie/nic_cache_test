@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 #include <wchar.h>
+#include <time.h>
 #include "hashtable.h"
 
 enum connection_state {
@@ -20,7 +21,10 @@ typedef struct connection_s {
     int fd;
     enum connection_state state;
     struct connection_s *next;
+    struct timespec ts;
     kv_hashtable_item_t *it;
+    uint8_t buf[16384];
+    uint16_t buflen;
 } connection_t;
 
 typedef struct connection_pool_s {
