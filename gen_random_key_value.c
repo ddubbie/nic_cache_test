@@ -4,8 +4,10 @@
 #include <stddef.h>
 #include <xxhash.h>
 #include <stdbool.h>
-
 #include "rng.h"
+
+#define MAX_VALUE_BUF_SIZE    (1<<20)
+#define MAX_KEY_BUF_SIZE      (1<<10)
 
 static void GenerateRandomString(char *buf, const ssize_t buflen, const ssize_t keyLen);
 
@@ -50,8 +52,8 @@ main(const int argc, char *argv[])
     int i;
     unsigned short max_keyLen, keyLen;
     unsigned int max_valueLen, valueLen;
-    char key_[1024];
-    char value_[8192];
+    char key_[MAX_KEY_BUF_SIZE];
+    char value_[MAX_VALUE_BUF_SIZE];
     bool uniform_value_size = false;
 
     if (argc != 7 && argc != 8) {
@@ -93,12 +95,12 @@ main(const int argc, char *argv[])
     }
 
     for (i = 0; i < num_tuples; i++) {
-        keyLen =  rng_gev(30.7984, 8.20449, 0.078688) % (max_keyLen - 1) + 1;
+        keyLen =  uniform_value_size ? max_keyLen :
+            rng_gev(30.7984, 8.20449, 0.078688) % (max_keyLen - 1) + 1;
         valueLen = uniform_value_size? max_valueLen :
                                        rng_gpd(0, 214.476, 0.348238) % max_valueLen;
-        GenerateRandomString(key_, 1024, keyLen);
-        GenerateRandomString(value_, 8192, valueLen);
-
+        GenerateRandomString(key_, MAX_KEY_BUF_SIZE, keyLen);
+        GenerateRandomString(value_, MAX_VALUE_BUF_SIZE, valueLen);
         fprintf(file, "%u,%s,%u,%s\n", keyLen, key_, valueLen, value_);
     }
 

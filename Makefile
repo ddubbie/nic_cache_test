@@ -4,7 +4,7 @@ GEN_RANDOM_KEY_VALUE = gen_random_key_value
 CC = gcc
 CFLAGS = -g -Wall #-Werror  #-O3
 LDFLAGS = -lpthread -lxxhash -lm -lhugetlbfs
-DEFINE = -D_GNU_SOURCE
+DEFINE = -D_GNU_SOURCE #-D_USE_DUMMY_FIELD_HDR
 
 all : $(TRANSMISSION_TEST) $(BLOCKING_CLIENT_TEST) \
 	  $(GEN_RANDOM_KEY_VALUE) 

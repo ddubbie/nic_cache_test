@@ -26,11 +26,6 @@
 
 #define GET 0
 #define SAMPLE_OBJECT_SIZE  128
-#define RCV_BUF_SIZE    (1<<12)
-
-#ifdef _USE_DUMMY_FIELD_HDR
-#define DUMMY_FIELD_SIZE    (1<<10)
-#endif
 
 typedef struct req_hdr_ req_hdr;
 typedef struct rep_hdr_ rep_hdr;
@@ -43,13 +38,20 @@ struct req_hdr_ {
 struct rep_hdr_ {
     uint8_t replyType;
     uint16_t valLen;
-#ifdef _USE_DUMMY_FIELD_HDR
-    uint8_t __dummy[DUMMY_FIELD_SIZE];
-#endif
     uint8_t val[];
 } __attribute__((packed));
 
-static uint8_t app_rcv_buf[RCV_BUF_SIZE];
+enum packet_structure {
+    REAL_PSEUDO                         =   0,
+    PSEUDO_REAL                         =   1,
+    REAL_REAL_PSEUDO_PSEUDO             =   2,
+    PSEUDO_PSEUDO_REAL_REAL             =   3,
+    PSEUDO_REAL_PSEUDO_REAL             =   4,
+    REAL_REAL_PSEUDO_REAL_PSEUDO_REAL   =   5,
+    PSEUDO_REAL_PSEUDO_REAL_REAL_PSEUDO =   6,
+};
+
+static uint8_t app_rcv_buf[1<<16];
 
 static void SetupKeyValue(void);
 static void DestroyKeyValue(void);
@@ -194,88 +196,42 @@ SendGetRequest(const int fd)
 }
 
 static int
-ReceiveReply(const int fd)
+ReceiveReply(const int fd, const enum pkt_type type)
 {
     int len;;
     int off = 0;
     int to_be_rcvd = strlen((char *)value_[0]) + sizeof(rep_hdr);
-    rep_hdr rep; //= (rep_hdr *)app_rcv_buf;
-    bool first = true;
-/*
+
     while((len = read(fd, app_rcv_buf + off, (1 << 16) - off)) > 0) {
-
-        if ((ret = memcmp(rep->val + off, (uint8_t *)value_[0] + off, 10)) != 0) {
-            char *ptr = (char *)rep->val + off;
-            ptr[len] = '\0';
-            log_error("value error ret:%d\n%s\n", ret, ptr);
-        }
-
         off += len;
         log_trace("rcvd_byte:%d\n", off);
-
+        
         if (to_be_rcvd == off)
             break;
-
-    } */
-
-    while ((len = read(fd, app_rcv_buf, RCV_BUF_SIZE)) > 0) 
-    {
-        if (first) {
-            rep_hdr *ptr;
-            first = false;
-            ptr = (rep_hdr *)app_rcv_buf;
-
-            rep.valLen = ptr->valLen;
-            rep.replyType = ptr->replyType;
-
-            if (rep.valLen != strlen((char *)value_[0])) {
-                log_error("value length error, valLen:%u, object len:%lu\n",
-                rep.valLen, strlen((char *)value_[0]));
-                close(fd);
-            }
-
-            if (memcmp(ptr->val, value_[0], len - sizeof(rep_hdr)) != 0) {
-                log_error("received object error\n");
-                close(fd);
-                return -1;
-            }
-
-            off += (len - sizeof(rep_hdr));
-        } else {
-            if (memcmp(app_rcv_buf, value_[0] + off, len) != 0) {
-                log_error("received object error\n");
-                close(fd);
-                return -1;
-            }
-
-            off += len;
-        }
-
-        if (to_be_rcvd != off)
-            break;
-    }
+    } 
 
     if (len <= 0) {
         close(fd);
     }
 
-    if (rep.valLen != strlen((char *)value_[0])) 
+    rep_hdr *rep = (rep_hdr *)app_rcv_buf;
+    if (rep->valLen != strlen((char *)value_[0])) 
     {
         log_error("value length error, valLen:%u, object len:%lu\n",
-                rep.valLen, strlen((char *)value_[0]));
+                rep->valLen, strlen((char *)value_[0]));
         close(fd);
         return -1;
     }
-/*
+
     if (memcmp(rep->val, value_[0], rep->valLen) != 0) 
     {
         char *ptr = (char *)rep->val;
         ptr[rep->valLen] = '\0';
-        log_error("received object error\n, received:%s\n, sample object:%s\n",
+        log_error("received object error, received:%s, sample object:%s\n",
                 ptr, (char *)value_[0]);
         close(fd);
         return -1;
-    }*/
+    }
 
     return off; 
 }

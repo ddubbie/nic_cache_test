@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <assert.h>
+#include <unistd.h>
 
 connection_pool_t *
 connection_create_pool(const ssize_t num_total_elements) 
@@ -85,6 +86,10 @@ connection_deallocate(connection_pool_t *cp, connection_t *c)
 void
 connection_destroy_pool(connection_pool_t **cp)
 {
+    int i;
+    for (i = 0; i < (*cp)->num_total_elements; i++) {
+        close((*cp)->mem[i].fd);
+    }
     free_huge_pages((*cp)->mem);
     free(*cp);
     *cp = NULL;
